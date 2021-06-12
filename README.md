@@ -101,3 +101,22 @@ merging requires a completed review. PRs will kick off a GitHub actions ci build
 and analysis of chiapos at
 [lgtm.com](https://lgtm.com/projects/g/Chia-Network/chiapos/?mode=list). Please
 make sure your build is passing and that it does not increase alerts at lgtm.
+
+
+修改说明：
+
+1. 临时文件位置调整 
+
+调整了一下tmp文件的位置，用于sort的文件位于 -t 指定的文件夹，而table和2.tmp文件位于 -2 指定的文件夹。 
+因此该版本的使用方法是一定要同时配置 -t 和 -2 参数，否则会出错。
+
+2. 排序算法的策略修改
+
+尽量的使用uniform sort，因为经测试，该种排序方式要比quick sort速度更快，平均时间只有quick sort的50%左右，但是它要占用更大的内存空间。
+因此该版本的使用方法是在 -k 32 的情况下，应设置8G的内存，-b 8000。（没有测试下限为多少，可能在6G左右）
+
+
+
+
+
+
