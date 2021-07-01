@@ -106,6 +106,9 @@ public:
             throw InsufficientMemoryException("Please provide at least 10MiB of ram");
         }
 
+        
+
+
         // Subtract some ram to account for dynamic allocation through the code
         uint64_t thread_memory = num_threads * (2 * (stripe_size + 5000)) *
                                  EntrySizes::GetMaxEntrySize(k, 4, true) / (1024 * 1024);
@@ -116,10 +119,13 @@ public:
         }
         uint64_t memory_size = ((uint64_t)(buf_megabytes - sub_mbytes)) * 1024 * 1024;
         double max_table_size = 0;
+        int max_table_index = 0;
         for (size_t i = 1; i <= 7; i++) {
             double memory_i = 1.3 * ((uint64_t)1 << k) * EntrySizes::GetMaxEntrySize(k, i, true);
-            if (memory_i > max_table_size)
+            if (memory_i > max_table_size) {            
                 max_table_size = memory_i;
+                max_table_index = i;
+            }
         }
         if (num_buckets_input != 0) {
             num_buckets = Util::RoundPow2(num_buckets_input);
@@ -128,32 +134,46 @@ public:
                                   ((double)max_table_size) / (memory_size * kMemSortProportion)));
         }
 
-        if (num_buckets < kMinBuckets) {
-            if (num_buckets_input != 0) {
-                throw InvalidValueException("Minimum buckets is " + std::to_string(kMinBuckets));
-            }
-            num_buckets = kMinBuckets;
-        } else if (num_buckets > kMaxBuckets) {
-            if (num_buckets_input != 0) {
-                throw InvalidValueException("Maximum buckets is " + std::to_string(kMaxBuckets));
-            }
-            double required_mem =
-                (max_table_size / kMaxBuckets) / kMemSortProportion / (1024 * 1024) + sub_mbytes;
-            throw InsufficientMemoryException(
-                "Do not have enough memory. Need " + std::to_string(required_mem) + " MiB");
-        }
+        
+        std::cout << "thread_memory:" << thread_memory << std::endl;
+        std::cout << "sub_mbytes:" << sub_mbytes << std::endl;
+        std::cout << "memory_size:" << memory_size << std::endl;
+        std::cout << "max_table_size:" << max_table_size << std::endl;
+        std::cout << "max_table_index:" << max_table_index << std::endl;
+        std::cout << "num_buckets:" << num_buckets << std::endl;
+
+        // if (num_buckets < kMinBuckets) {
+        //     if (num_buckets_input != 0) {
+        //         throw InvalidValueException("Minimum buckets is " + std::to_string(kMinBuckets));
+        //     }
+        //     num_buckets = kMinBuckets;
+        // } else if (num_buckets > kMaxBuckets) {
+        //     if (num_buckets_input != 0) {
+        //         throw InvalidValueException("Maximum buckets is " + std::to_string(kMaxBuckets));
+        //     }
+        //     double required_mem =
+        //         (max_table_size / kMaxBuckets) / kMemSortProportion / (1024 * 1024) + sub_mbytes;
+        //     throw InsufficientMemoryException(
+        //         "Do not have enough memory. Need " + std::to_string(required_mem) + " MiB");
+        // }
         uint32_t log_num_buckets = log2(num_buckets);
         assert(log2(num_buckets) == ceil(log2(num_buckets)));
+
+        std::cout << "log_num_buckets:" << log_num_buckets << std::endl;
 
         if (max_table_size / num_buckets < stripe_size * 30) {
             throw InvalidValueException("Stripe size too large");
         }
+
+        
 
 #if defined(_WIN32) || defined(__x86_64__)
         if (!nobitfield && !Util::HavePopcnt()) {
             throw InvalidValueException("Bitfield plotting not supported by CPU");
         }
 #endif /* defined(_WIN32) || defined(__x86_64__) */
+
+        
 
         std::cout << std::endl
                   << "Starting plotting progress into temporary dirs: " << tmp_dirname << " and "
@@ -165,16 +185,17 @@ public:
         std::cout << "Using " << (int)num_threads << " threads of stripe size " << stripe_size
                   << std::endl;
 
+        
+
         // Cross platform way to concatenate paths, gulrak library.
         std::vector<fs::path> tmp_1_filenames = std::vector<fs::path>();
 
         // The table0 file will be used for sort on disk spare. tables 1-7 are stored in their own
         // file.
-        // 这里，我们把sort.map, table 1-7 挪到tmp2_dirname里，减少tmp_dirname所需要的空间
-        tmp_1_filenames.push_back(fs::path(tmp2_dirname) / fs::path(filename + ".sort.tmp"));
+        tmp_1_filenames.push_back(fs::path(tmp_dirname) / fs::path(filename + ".sort.tmp"));
         for (size_t i = 1; i <= 7; i++) {
             tmp_1_filenames.push_back(
-                fs::path(tmp2_dirname) / fs::path(filename + ".table" + std::to_string(i) + ".tmp"));
+                fs::path(tmp_dirname) / fs::path(filename + ".table" + std::to_string(i) + ".tmp"));
         }
         fs::path tmp_2_filename = fs::path(tmp2_dirname) / fs::path(filename + ".2.tmp");
         fs::path final_2_filename = fs::path(final_dirname) / fs::path(filename + ".2.tmp");
@@ -232,6 +253,7 @@ public:
                 show_progress);
             p1.PrintElapsed("Time for phase 1 =");
 
+            
             uint64_t finalsize=0;
 
             if(nobitfield)
@@ -257,6 +279,8 @@ public:
                     log_num_buckets,
                     show_progress);
                 p2.PrintElapsed("Time for phase 2 =");
+
+                
 
                 // Now we open a new file, where the final contents of the plot will be stored.
                 uint32_t header_size = WriteHeader(tmp2_disk, k, id, memo, memo_len);
@@ -308,6 +332,8 @@ public:
                     show_progress);
                 p2.PrintElapsed("Time for phase 2 =");
 
+                return;
+
                 // Now we open a new file, where the final contents of the plot will be stored.
                 uint32_t header_size = WriteHeader(tmp2_disk, k, id, memo, memo_len);
 
@@ -358,6 +384,8 @@ public:
             all_phases.PrintElapsed("Total time =");
         }
 
+        
+
         std::cin.tie(prevstr);
         std::ios_base::sync_with_stdio(true);
 
@@ -365,7 +393,7 @@ public:
             fs::remove(p);
         }
 
-        bool bCopied = true; // 修改成true，可以省略copy的那个步骤
+        bool bCopied = false;
         bool bRenamed = false;
         Timer copy;
         do {
@@ -401,8 +429,7 @@ public:
                     }
                 }
                 if (bCopied && (!bRenamed)) {
-                    // fs::rename(final_2_filename, final_filename, ec);
-                    fs::rename(tmp_2_filename, final_filename, ec);
+                    fs::rename(final_2_filename, final_filename, ec);
                     if (ec.value() != 0) {
                         std::cout << "Could not rename " << tmp_2_filename << " to "
                                   << final_filename << ". Error " << ec.message()

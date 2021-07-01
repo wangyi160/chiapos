@@ -209,6 +209,8 @@ void* phase1_thread(THREADDATA* ptd)
                 Sem::Wait(ptd->theirs);
             }
             globals.L_sort_manager->TriggerNewBucket(left_reader);
+
+            
         }
         if (!last_thread) {
             // Do not post if we are the last thread, because first thread has already
@@ -505,9 +507,13 @@ void* phase1_thread(THREADDATA* ptd)
             }
         }
         if (table_index < 6) {
+            
+            // 这块是生成p1.t2
             for (uint64_t i = 0; i < right_writer_count; i++) {
                 globals.R_sort_manager->AddToCache(right_writer_buf.get() + i * right_entry_size_bytes);
             }
+
+            
         } else {
             // Writes out the right table for table 7
             (*ptmp_1_disks)[table_index + 1].Write(
@@ -518,13 +524,18 @@ void* phase1_thread(THREADDATA* ptd)
         globals.right_writer += right_writer_count * right_entry_size_bytes;
         globals.right_writer_count += right_writer_count;
 
+        // 这块是写入table 1
         (*ptmp_1_disks)[table_index].Write(
             globals.left_writer, left_writer_buf.get(), left_writer_count * compressed_entry_size_bytes);
         globals.left_writer += left_writer_count * compressed_entry_size_bytes;
         globals.left_writer_count += left_writer_count;
 
+        
+
         globals.matches += matches;
         Sem::Post(ptd->mine);
+
+        
     }
 
     return 0;
@@ -542,6 +553,11 @@ void* F1thread(int const index, uint8_t const k, const uint8_t* id, std::mutex* 
 
     std::unique_ptr<uint8_t[]> right_writer_buf(new uint8_t[right_buf_entries * entry_size_bytes]);
 
+    std::cout << "max_value:" << max_value << std::endl;
+    std::cout << "right_buf_entries:" << right_buf_entries << std::endl;
+    std::cout << "loopc:" << (((uint64_t)1) << (k - kBatchSizes)) << std::endl;
+
+
     // Instead of computing f1(1), f1(2), etc, for each x, we compute them in batches
     // to increase CPU efficency.
     for (uint64_t lp = index; lp <= (((uint64_t)1) << (k - kBatchSizes));
@@ -557,12 +573,20 @@ void* F1thread(int const index, uint8_t const k, const uint8_t* id, std::mutex* 
         // Instead of computing f1(1), f1(2), etc, for each x, we compute them in batches
         // to increase CPU efficency.
         f1.CalculateBuckets(x, loopcount, f1_entries.get());
+
+        // std::cout << "lp:" << lp << std::endl;
+        // std::cout << "loopcount:" << loopcount << std::endl;
+
         for (uint32_t i = 0; i < loopcount; i++) {
             uint8_t to_write[16];
             uint128_t entry;
 
             entry = (uint128_t)f1_entries[i] << (128 - kExtraBits - k);
             entry |= (uint128_t)x << (128 - kExtraBits - 2 * k);
+
+            // std::cout << "i:" << i << std::endl;
+            // std::cout << "entry:" << entry << std::endl;
+
             Util::IntTo16Bytes(to_write, entry);
             memcpy(&(right_writer_buf[i * entry_size_bytes]), to_write, 16);
             right_writer_count++;
@@ -571,14 +595,59 @@ void* F1thread(int const index, uint8_t const k, const uint8_t* id, std::mutex* 
 
         std::lock_guard<std::mutex> l(*smm);
 
-        // Write it out
+       // Write it out
         for (uint32_t i = 0; i < right_writer_count; i++) {
+            
             globals.L_sort_manager->AddToCache(&(right_writer_buf[i * entry_size_bytes]));
         }
+
+        
     }
 
     return 0;
 }
+
+void moveTable(std::vector<FileDisk>& tmp_1_disks, uint8_t table_index)
+{
+    fs::path table = fs::path(tmp_1_disks[table_index].GetFileName() );
+    fs::path table2 = fs::path( "tmp2" ) / fs::path( tmp_1_disks[table_index].GetFileName() );
+
+    std::error_code ec;
+
+
+    // 进行文件复制操作
+    tmp_1_disks[table_index].Close(); // 一定要先close，否则文件不全
+    fs::copy(table, table2, fs::copy_options::overwrite_existing, ec);
+
+    Timer copy;
+
+    if (ec.value() != 0) {
+        std::cout << "Could not copy " << table << " to "
+                    << table2 << ". Error " << ec.message() << std::endl;
+                    
+    } else {
+        std::cout << "Copied file from " << table << " to " << table2 << std::endl;
+        copy.PrintElapsed("Copy time =");
+        
+        // 将bucketFile删除
+        // buckets_[i].underlying_file.Close();
+        bool removed = fs::remove(table);
+        std::cout << "Removed file " << table << "? " << removed << std::endl;
+
+        // // 将bucketFile2加入到bucket_中
+        // bucket_t b (FileDisk (bucketFile2)) ;
+
+        // buckets_[i] = &b;
+
+        
+    }
+
+    // 1替换成2
+    tmp_1_disks[table_index].ChangeFile(table2);
+    
+
+}
+
 
 // This is Phase 1, or forward propagation. During this phase, all of the 7 tables,
 // and f functions, are evaluated. The result is an intermediate plot file, that is
@@ -618,6 +687,7 @@ std::vector<uint64_t> RunPhase1(
         0,
         globals.stripe_size);
 
+    
     // These are used for sorting on disk. The sort on disk code needs to know how
     // many elements are in each bucket.
     std::vector<uint64_t> table_sizes = std::vector<uint64_t>(8, 0);
@@ -636,9 +706,22 @@ std::vector<uint64_t> RunPhase1(
         // end of parallel execution
     }
 
+    
     uint64_t prevtableentries = 1ULL << k;
     f1_start_time.PrintElapsed("F1 complete, time:");
     globals.L_sort_manager->FlushCache();
+
+
+    
+
+    // 这里加一个文件迁移操作，将生成的p1.t1.*复制到tmp2中
+    globals.L_sort_manager->moveFiles();
+
+    // stop here
+    // throw InvalidValueException("Stop at F1");
+    std::cin.get();
+    
+
     table_sizes[1] = x + 1;
 
     // Store positions to previous tables, in k bits.
@@ -666,6 +749,10 @@ std::vector<uint64_t> RunPhase1(
             }
         }
 
+
+        
+
+
         std::cout << "Computing table " << int{table_index + 1} << std::endl;
         // Start of parallel execution
 
@@ -688,6 +775,9 @@ std::vector<uint64_t> RunPhase1(
             globals.stripe_size);
 
         globals.L_sort_manager->TriggerNewBucket(0);
+
+        // 暂停
+        // std::cin.get();
 
         Timer computation_pass_timer;
 
@@ -726,6 +816,7 @@ std::vector<uint64_t> RunPhase1(
         for (int i = 0; i < num_threads; i++) {
             Sem::Destroy(mutex[i]);
         }
+       
 
         // end of parallel execution
 
@@ -738,6 +829,11 @@ std::vector<uint64_t> RunPhase1(
         // Truncates the file after the final write position, deleting no longer useful
         // working space
         tmp_1_disks[table_index].Truncate(globals.left_writer);
+
+        
+        
+
+
         globals.L_sort_manager.reset();
         if (table_index < 6) {
             globals.R_sort_manager->FlushCache();
@@ -745,6 +841,8 @@ std::vector<uint64_t> RunPhase1(
         } else {
             tmp_1_disks[table_index + 1].Truncate(globals.right_writer);
         }
+
+        
 
         // Resets variables
         if (globals.matches != globals.right_writer_count) {
@@ -758,10 +856,28 @@ std::vector<uint64_t> RunPhase1(
         if (show_progress) {
             progress(1, table_index, 6);
         }
+
+        // 这里加一个文件迁移操作，将生成的pn.tn.*复制到tmp2中
+
+        if(table_index < 6)
+        {
+            globals.L_sort_manager->moveFiles();
+            moveTable( tmp_1_disks, table_index );
+            // std::cin.get();
+        }
+        else
+        {
+            moveTable( tmp_1_disks, table_index );
+            moveTable( tmp_1_disks, table_index+1 );
+            // std::cin.get();
+        }
+
     }
     table_sizes[0] = 0;
     globals.R_sort_manager.reset();
     return table_sizes;
 }
+
+
 
 #endif  // SRC_CPP_PHASE1_HPP

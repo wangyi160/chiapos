@@ -93,8 +93,12 @@ public:
         if (this->done) {
             throw InvalidValueException("Already finished.");
         }
+
         uint64_t const bucket_index =
             Util::ExtractNum(entry, entry_size_, begin_bits_, log_num_buckets_);
+
+        // std::cout << "bucket_index:" << bucket_index << std::endl;
+
         bucket_t& b = buckets_[bucket_index];
         b.file.Write(b.write_pointer, entry, entry_size_);
         b.write_pointer += entry_size_;
@@ -211,6 +215,66 @@ public:
         memory_start_.reset();
     }
 
+    void printBuckets()
+    {
+        for(std::size_t i=0;i<buckets_.size();i++)
+        {
+            std::cout << buckets_[i].file.GetFileName() << std::endl;
+        }
+    }
+
+    void moveFiles()
+    {
+        // 生成一个新的bucket2
+        std::vector<bucket_t> buckets_2;
+        buckets_2.reserve(buckets_.size());
+
+        
+        for(std::size_t i=0;i<buckets_.size();i++)
+        {
+            std::cout << buckets_[i].file.GetFileName() << std::endl;
+
+            fs::path bucketFile = fs::path(buckets_[i].file.GetFileName() );
+            fs::path bucketFile2 = fs::path( "tmp2" ) / fs::path(buckets_[i].file.GetFileName() );
+
+            std::error_code ec;
+
+
+            // 进行文件复制操作
+            buckets_[i].underlying_file.Close(); // 一定要先close，否则文件不全
+            fs::copy(bucketFile, bucketFile2, fs::copy_options::overwrite_existing, ec);
+
+            Timer copy;
+
+            if (ec.value() != 0) {
+                std::cout << "Could not copy " << bucketFile << " to "
+                            << bucketFile2 << ". Error " << ec.message() << std::endl;
+                            
+            } else {
+                std::cout << "Copied file from " << bucketFile << " to " << bucketFile2 << std::endl;
+                copy.PrintElapsed("Copy time =");
+                
+                // 将bucketFile删除
+                // buckets_[i].underlying_file.Close();
+                bool removed = fs::remove(bucketFile);
+                std::cout << "Removed file " << bucketFile << "? " << removed << std::endl;
+
+                // // 将bucketFile2加入到bucket_中
+                // bucket_t b (FileDisk (bucketFile2)) ;
+
+                // buckets_[i] = &b;
+
+                buckets_2.emplace_back( FileDisk(bucketFile2, FileDisk::retryOpenFlag));
+                buckets_2[i].write_pointer = buckets_[i].write_pointer; // 这个参数后面会用到，所以要还原
+            }
+        }
+
+        // 1替换成2
+        buckets_ = std::move(buckets_2);
+        
+        std::cout << "buckets_ size: " << buckets_.size() << std::endl;
+    }
+
     ~SortManager()
     {
         // Close and delete files in case we exit without doing the sort
@@ -262,6 +326,8 @@ private:
 
     void SortBucket()
     {
+        std::cout << "next_bucket_to_sort:" << next_bucket_to_sort << std::endl;
+        
         if (!memory_start_) {
             // we allocate the memory to sort the bucket in lazily. It'se freed
             // in FreeMemory() or the destructor
@@ -270,6 +336,8 @@ private:
 
         this->done = true;
         if (next_bucket_to_sort >= buckets_.size()) {
+            std::cout << next_bucket_to_sort << " vs " << buckets_.size() << std::endl;
+            
             throw InvalidValueException("Trying to sort bucket which does not exist.");
         }
         uint64_t const bucket_i = this->next_bucket_to_sort;
@@ -291,15 +359,11 @@ private:
         bool const last_bucket = (bucket_i == buckets_.size() - 1)
             || buckets_[bucket_i + 1].write_pointer == 0;
 
-        // bool const force_quicksort = (strategy_ == strategy_t::quicksort)
-        //     || (strategy_ == strategy_t::quicksort_last && last_bucket);
-
-        bool const force_quicksort = (strategy_ == strategy_t::quicksort && last_bucket)
+        bool const force_quicksort = (strategy_ == strategy_t::quicksort)
             || (strategy_ == strategy_t::quicksort_last && last_bucket);
 
         // Do SortInMemory algorithm if it fits in the memory
         // (number of entries required * entry_size_) <= total memory available
-
         if (!force_quicksort &&
             Util::RoundSize(bucket_entries) * entry_size_ <= memory_size_) {
             std::cout << "\tBucket " << bucket_i << " uniform sort. Ram: " << std::fixed

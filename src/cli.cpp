@@ -71,19 +71,19 @@ int main(int argc, char *argv[]) try {
 
     // Default values
     uint8_t k = 20;
-    uint32_t num_buckets = 0;
-    uint32_t num_stripes = 0;
-    uint8_t num_threads = 0;
+    uint32_t num_buckets = 1;
+    uint32_t num_stripes = 65536;
+    uint8_t num_threads = 1;
     string filename = "plot.dat";
-    string tempdir = ".";
-    string tempdir2 = ".";
-    string finaldir = ".";
+    string tempdir = "tmp";
+    string tempdir2 = "tmp";
+    string finaldir = "plots";
     string operation = "help";
-    string memo = "0102030405";
-    string id = "022fb42c08c12de3a6af053880199806532e79515f94e83461612101f9412f9e";
+    string memo = "0xaab0fee7f870052302ac3878de7e2f1833363e045a9d98104bf7fdb6b1917a33eb10c52bfc5124c63e47374306ff26d083a2c8b05746d13e9d396c5724936f3a1d4376de8a4a0451331d903956c5154711c395a06b939197bbd24092109b324b60fa8d2fd03f3c43aa562308bb461bf779b389757c4e62e7cd2bf020b5ed5777";
+    string id = "0x2b11096b1b8eb66ae7a437aedc2c39631be0f842288617d5e6ffd73107de385f";
     bool nobitfield = false;
-    bool show_progress = false;
-    uint32_t buffmegabytes = 0;
+    bool show_progress = true;
+    uint32_t buffmegabytes = 2000;
 
     options.allow_unrecognised_options().add_options()(
             "k, size", "Plot size", cxxopts::value<uint8_t>(k))(

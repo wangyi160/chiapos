@@ -104,6 +104,18 @@ struct FileDisk {
         Open(writeFlag);
     }
 
+    FileDisk(const fs::path &filename, uint8_t flag)
+    {
+        filename_ = filename;
+        Open(flag);
+    }
+
+    void ChangeFile(const fs::path &filename)
+    {
+        filename_ = filename;
+        Open(retryOpenFlag);
+    }
+
     void Open(uint8_t flags = 0)
     {
         // if the file is already open, don't do anything
@@ -233,6 +245,9 @@ struct FileDisk {
         fs::resize_file(filename_, new_size);
     }
 
+    static const uint8_t writeFlag = 0b01;
+    static const uint8_t retryOpenFlag = 0b10;
+
 private:
 
     uint64_t readPos = 0;
@@ -243,8 +258,7 @@ private:
     fs::path filename_;
     FILE *f_ = nullptr;
 
-    static const uint8_t writeFlag = 0b01;
-    static const uint8_t retryOpenFlag = 0b10;
+    
 };
 
 struct BufferedDisk : Disk
